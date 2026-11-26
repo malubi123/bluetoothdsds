@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Bluetooth Ghost v3</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0f0f0f;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        h1 {
+            color: #00ff9d;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .status-box {
+            background: #1e1e1e;
+            border: 1px solid #333;
+            padding: 15px;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 300px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 0.9em;
+            color: #aaa;
+            word-wrap: break-word;
+        }
+        .btn {
+            background: #007aff;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 80%;
+            max-width: 250px;
+            margin-bottom: 15px;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 15px rgba(0, 122, 255, 0.3);
+        }
+        .btn:disabled {
+            background: #444;
+            color: #888;
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+        .btn.secondary {
+            background: #ff3b30;
+            box-shadow: 0 4px 15px rgba(255, 59, 48, 0.3);
+        }
+        .device-list {
+            width: 100%;
+            max-width: 300px;
+            margin-top: 20px;
+        }
+        .device-item {
+            background: #2c2c2c;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .device-item:hover {
+            border-color: #00ff9d;
+        }
+        .device-item.selected {
+            background: #004d2f;
+            border-color: #00ff9d;
+        }
+        .pulse {
+            animation: pulse-animation 2s infinite;
+        }
+        @keyframes pulse-animation {
+            0% { box-shadow: 0 0 0 0 rgba(0, 255, 157, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(0, 255, 157, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(0, 255, 157, 0); }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>👻 Bluetooth Ghost v3</h1>
+
+    <div class="status-box" id="status">Gotowy do skanowania...</div>
+
+    <button class="btn" id="btnScan" onclick="startScan()">🔍 Uruchom Skaner</button>
+    <button class="btn secondary" id="btnControl" onclick="takeControl()" disabled>🎮 Przejmij Kontrolę</button>
+    <button class="btn secondary" id="btnDisconnect" onclick="disconnectDevice()" disabled>🔌 Odłącz</button>
+
+    <div class="device-list" id="deviceList"></div>
+
+    <script>
+        let bluetoothDevice = null;
+        let characteristic = null;
+        const statusEl = document.getElementById('status');
+        const btnScan = document.getElementById('btnScan');
+        const btnControl = document.getElementById('btnControl');
+        const btnDisconnect = document.getElementById('btnDisconnect');
+        const deviceListEl = document.getElementById('deviceList');
+
+        function updateStatus(msg) {
+            statusEl.textContent = msg;
+            if (msg.includes("Skanowanie")) {
+                btnScan.classList.add('pulse');
+            } else {
+                btnScan.classList.remove('pulse');
+            }
+        }
+
+        async function startScan() {
+            if (!navigator.bluetooth) {
+                alert("Twoja przeglądarka nie wspiera Web Bluetooth.");
+                return;
+            }
+
+            try {
+                updateStatus("Skanowanie...");
+                
+                // Używamy tylko sprawdzonych aliasów lub pustej listy
+                bluetoothDevice = await navigator.bluetooth.requestDevice({
+                    acceptAllDevices: true,
+                    optionalServices: ['battery_service', 'device_information'] 
+                });
+
+                updateStatus(`Wykryto: ${bluetoothDevice.name || 'Urządzenie BT'}`);
+                
+                deviceListEl.innerHTML = `
+                    <div class="device-item selected" onclick="selectDevice(this)">
+                        <span>${bluetoothDevice.name || 'Bluetooth Device'}</span>
+                        <span>✅</span>
+                    </div>
+                `;
+                
+                btnControl.disabled = false;
+                btnDisconnect.disabled = false;
+
+            } catch (error) {
+                console.error(error);
+                updateStatus("Błąd skanowania: " + error.message);
+            }
+        }
+
+        function selectDevice(el) {
+            document.querySelectorAll('.device-item').forEach(item => item.classList.remove('selected'));
+            el.classList.add('selected');
+        }
+
+        async function takeControl() {
+            if (!bluetoothDevice) return;
+
+            try {
+                updateStatus("Łączenie...");
+                const server = await bluetoothDevice.gatt.connect();
+                
+                // Próba znalezienia charakterystyki do sterowania
+                // Spróbujemy najpierw standardowej usługi 'generic_access'
+                const service = await server.getPrimaryService('generic_access');
+                
+                // Znajdź pierwszą dostępną charakterystykę do pisania
+                const characteristics = await service.getCharacteristics();
+                if (characteristics.length > 0) {
+                    characteristic = characteristics[0];
+                    
+                    // Wyślij losowe dane, aby "obudzić" urządzenie
+                    const value = new Uint8Array([0x01]); 
+                    await characteristic.writeValue(value);
+                    
+                    updateStatus("Kontrola przejęta! Wyśłano sygnał.");
+                    
+                    // Automatyczne odłączenie po 5 sekundach
+                    setTimeout(() => {
+                        disconnectDevice();
+                    }, 5000);
+                } else {
+                    updateStatus("Brak dostępnych kanałów do sterowania.");
+                }
+
+            } catch (error) {
+                console.error(error);
+                updateStatus("Nie udało się przejąć kontroli. Spróbuj ponownie.");
+            }
+        }
+
+        async function disconnectDevice() {
+            if (bluetoothDevice && bluetoothDevice.gatt.connected) {
+                bluetoothDevice.gatt.disconnect();
+                updateStatus("Odłączono.");
+                btnControl.disabled = true;
+                btnDisconnect.disabled = true;
+                deviceListEl.innerHTML = "";
+            } else {
+                updateStatus("Brak aktywnego połączenia.");
+            }
+        }
+    </script>
+</body>
+</html>
